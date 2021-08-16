@@ -1,0 +1,26 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  name: demo-run
+spec:
+  serviceAccountName: pipeline-sa
+  pipelineRef:
+    name: bom-demo
+  workspaces:
+  - name: dockerconfig
+    secret: 
+      secretName: regcred
+  - name: shared-data
+    volumeClaimTemplate:
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+  params:
+  - name: repo-url
+    value: https://github.com/uServers/miniprow.git
+  - name: branch-name
+    value: main

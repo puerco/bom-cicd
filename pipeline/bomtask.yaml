@@ -1,0 +1,34 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: sbom
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/tags: sbom
+    tekton.dev/displayName: "Generate a SPDX bill of materials"  
+spec:
+  description:  >-
+    This Task enables you to generate a bill of materials for your project.
+  params:
+  - name: command
+    description: bom subcommand to call, generate is used by default
+    default: generate
+  - name: namespace
+    description: SPDX namespace tu use in the bill of materials
+  #- name: configFile
+  #  description: YAML configuration file for the SBOM generation
+  #  default: 
+  - name: EXTRA_ARGS
+    type: array
+    default: []
+  workspaces:
+  - name: source
+    description: Source directory. It should contain at the very least the YAML config file
+  steps:
+    - name: generate-sbom
+      image: ghcr.io/puerco/release/bom:latest
+      args:
+      - $(params.command)
+      - "-n$(params.namespace)"
+      - $(params.EXTRA_ARGS[*])
