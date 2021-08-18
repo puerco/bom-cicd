@@ -12,7 +12,12 @@ spec:
     description: The git repository URL to clone from.
   - name: branch-name
     type: string
-    description: The git branch to clone.
+    description: The git branch to clone and compile
+    default: main
+  - name: cosign-secret
+    type: string
+    description: The kubernetes secret used by cosign to sign the image
+    default: "k8s://default/cosign-secret"
   workspaces:
   - name: shared-data
     description: |
@@ -21,6 +26,8 @@ spec:
   - name: dockerconfig
     description: Docker credential
   tasks:
+  # Task 1: Clone the repository into a common
+  #         workspace directory.
   - name: clone-repository
     taskRef:
       name: git-clone
@@ -32,6 +39,9 @@ spec:
       value: $(params.repo-url)
     - name: revision
       value: $(params.branch-name)
+  # Task 2: Build the container image using kaniko
+  #         This task will publish the image to 
+  #         Github Packages.
   - name: build-image
     runAfter: ["clone-repository"]
     taskRef:
@@ -46,8 +56,12 @@ spec:
       value: $(workspaces.source.path)/actions/broker/Dockerfile
     - name: IMAGE
       value: ghcr.io/uservers/miniprow/miniprow:beta
+  # Task 3: Generate the SBOM. bom will be called using a
+  #         configuration file (.sbom.yaml) found in the
+  #         repository. The BOM will be temporarily written
+  #         in the workspace directory.
   - name: sbom
-    runAfter: ["build-image"]  # Wait until the clone is done before reading the readme.
+    runAfter: ["build-image"]
     taskRef:
       name: sbom
     workspaces:
@@ -58,10 +72,15 @@ spec:
       value: https://github.com/uservers/miniprow
     - name: EXTRA_ARGS
       value: 
-      - $(workspaces.source.path)
-      - "-ighcr.io/uservers/miniprow/miniprow:beta"
+      - "--config=.sbom.yaml"
       - "-o$(workspaces.source.path)/sbom.spdx"
+  # Task 4: Sign the image and upload the sbom and signature to
+  #         the GitHub registry using cosign. This allows us
+  #         to persist the SBOM after the pipeline is done.
   - name: cosign
+    params:
+    - name: cosign-secret
+      value: $(params.cosign-secret)
     runAfter: ["sbom"]
     workspaces:
     - name: source
@@ -69,11 +88,15 @@ spec:
     - name: dockerconfig
       workspace: dockerconfig
     taskSpec:
+      params:
+      - name: cosign-secret
+        description: Kubernetes secret used by cosign to sign the image
       workspaces:
       - name: source
       - name: dockerconfig
       steps:
       - image: gcr.io/projectsigstore/cosign:v1.0.0
+        name: attach-sbom
         env:
         - name: DOCKER_CONFIG
           value: "$(workspaces.dockerconfig.path)"
@@ -83,17 +106,28 @@ spec:
         - "-sbom"
         - "$(workspaces.source.path)/sbom.spdx"
         - ghcr.io/uservers/miniprow/miniprow:beta
-  - name: cat-readme
-    runAfter: ["sbom"]  # Wait until the clone is done before reading the readme.
-    workspaces:
-    - name: source
-      workspace: shared-data
-    taskSpec:
-      workspaces:
-      - name: source
-      steps:
-      - image: zshusers/zsh:4.3.15
-        script: |
-          #!/usr/bin/env zsh
-          cat $(workspaces.source.path)/README.md
-          cat $(workspaces.source.path)/sbom.spdx
+      - image: gcr.io/projectsigstore/cosign:v1.0.0
+        name: sign-container-image
+        env:
+        - name: DOCKER_CONFIG
+          value: "$(workspaces.dockerconfig.path)"
+        args:
+        - sign
+        - -key
+        - $(params.cosign-secret)
+        - ghcr.io/uservers/miniprow/miniprow:beta
+# This is  uncommented, this task cats the sbom to the log
+#  - name: cat-readme
+#    runAfter: ["sbom"]
+#    workspaces:
+#    - name: source
+#      workspace: shared-data
+#    taskSpec:
+#      workspaces:
+#      - name: source
+#      steps:
+#      - image: zshusers/zsh:4.3.15
+#        name: cat-sbom
+#        script: |
+#          #!/usr/bin/env zsh
+#          cat $(workspaces.source.path)/sbom.spdx

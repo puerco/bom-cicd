@@ -22,5 +22,8 @@ spec:
   params:
   - name: repo-url
     value: https://github.com/uServers/miniprow.git
+  - name: cosign-secret
+    value: k8s://default/cokey
   - name: branch-name
     value: main
+

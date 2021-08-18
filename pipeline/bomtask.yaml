@@ -27,6 +27,7 @@ spec:
     description: Source directory. It should contain at the very least the YAML config file
   steps:
     - name: generate-sbom
+      workingDir: $(workspaces.source.path)
       image: ghcr.io/puerco/release/bom:latest
       args:
       - $(params.command)
